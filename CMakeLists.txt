@@ -51,12 +51,15 @@ add_custom_command(TARGET P5Generator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLE_MACOS_DIR}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLE_RESOURCES_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:P5Generator>" "${BUNDLE_MACOS_DIR}/P5Generator.ofx"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:P5Generator>" "${BUNDLE_MACOS_DIR}/P5Generator"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "MacOS" "${BUNDLE_DIR}/Contents/MacOS-arm64"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "MacOS" "${BUNDLE_DIR}/Contents/MacOS-x86-64"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist" "${BUNDLE_DIR}/Contents/Info.plist"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/index.html" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/p5.min.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/p5_shim.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/default_sketch.js" "${BUNDLE_RESOURCES_DIR}/"
-    COMMENT "Assembling P5Generator.ofx.bundle with Resources and Info.plist"
+    COMMENT "Assembling P5Generator.ofx.bundle with Resources, symlinks, and Info.plist"
 )
 
 # Standalone Test Harness executable

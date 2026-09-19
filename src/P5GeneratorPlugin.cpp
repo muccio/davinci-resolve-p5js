@@ -201,12 +201,16 @@ static OfxStatus onDescribeAction(OfxImageEffectHandle descriptor) {
 
     // Metadata
     gPropSuite->propSetString(effectProps, kOfxPropLabel, 0, "P5.js Canvas Generator");
+    gPropSuite->propSetString(effectProps, kOfxPropShortLabel, 0, "P5 Generator");
+    gPropSuite->propSetString(effectProps, kOfxPropLongLabel, 0, "P5.js Canvas Generator");
     gPropSuite->propSetString(effectProps, kOfxImageEffectPluginPropGrouping, 0, "Generators");
     gPropSuite->propSetString(effectProps, kOfxPropPluginDescription, 0,
                               "Native p5.js offscreen generator with deterministic timeline synchronization and external CDN library support.");
 
-    // Supported Contexts: Generator
+    // Supported Contexts: Generator, Filter, General
     gPropSuite->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextGenerator);
+    gPropSuite->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextFilter);
+    gPropSuite->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 2, kOfxImageEffectContextGeneral);
 
     // Supported Pixel Depths: 8-bit Byte & 32-bit Float
     gPropSuite->propSetString(effectProps, kOfxImageEffectPropSupportedPixelDepths, 0, kOfxBitDepthByte);
@@ -221,6 +225,18 @@ static OfxStatus onDescribeAction(OfxImageEffectHandle descriptor) {
 }
 
 static OfxStatus onDescribeInContextAction(OfxImageEffectHandle descriptor, OfxPropertySetHandle inArgs) {
+    char* context = nullptr;
+    gPropSuite->propGetString(inArgs, kOfxImageEffectPropContext, 0, &context);
+
+    // If instantiated as a Filter or General context, define an optional source clip
+    if (context && (strcmp(context, kOfxImageEffectContextFilter) == 0 || strcmp(context, kOfxImageEffectContextGeneral) == 0)) {
+        OfxPropertySetHandle srcClipProps = nullptr;
+        gImageEffectSuite->clipDefine(descriptor, kOfxImageEffectSimpleSourceClipName, &srcClipProps);
+        gPropSuite->propSetString(srcClipProps, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
+        gPropSuite->propSetString(srcClipProps, kOfxImageClipPropFieldExtraction, 0, kOfxImageFieldBoth);
+        gPropSuite->propSetInt(srcClipProps, kOfxImageClipPropOptional, 0, 1);
+    }
+
     // Define Output Clip
     OfxPropertySetHandle outClipProps = nullptr;
     gImageEffectSuite->clipDefine(descriptor, kOfxImageEffectOutputClipName, &outClipProps);
