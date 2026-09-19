@@ -149,16 +149,96 @@
       return cnv;
     };
 
-    // Forward standard p5 functions to global scope so sketches run seamlessly
+    // Forward standard p5 functions AND constants to global scope
     for (const key in p5.prototype) {
-      if (typeof p5.prototype[key] === 'function' && !(key in window)) {
-        window[key] = function (...args) {
-          if (activeP5Instance && typeof activeP5Instance[key] === 'function') {
-            return activeP5Instance[key].apply(activeP5Instance, args);
-          }
-        };
+      if (typeof p5.prototype[key] === 'function') {
+        if (!(key in window)) {
+          window[key] = function (...args) {
+            if (activeP5Instance && typeof activeP5Instance[key] === 'function') {
+              return activeP5Instance[key].apply(activeP5Instance, args);
+            }
+          };
+        }
+      } else {
+        if (!(key in window)) {
+          try {
+            window[key] = p5.prototype[key];
+          } catch (e) {}
+        }
       }
     }
+
+    // Explicitly define standard p5 constants on window
+    const p5Constants = {
+      HSB: 'hsb',
+      RGB: 'rgb',
+      HSL: 'hsl',
+      WEBGL: 'webgl',
+      P2D: 'p2d',
+      PI: Math.PI,
+      TWO_PI: Math.PI * 2,
+      HALF_PI: Math.PI / 2,
+      QUARTER_PI: Math.PI / 4,
+      TAU: Math.PI * 2,
+      DEGREES: 'degrees',
+      RADIANS: 'radians',
+      CENTER: 'center',
+      RADIUS: 'radius',
+      CORNER: 'corner',
+      CORNERS: 'corners',
+      CLOSE: 'close',
+      OPEN: 'open',
+      CHORD: 'chord',
+      PIE: 'pie',
+      POINTS: 0x0000,
+      LINES: 0x0001,
+      TRIANGLES: 0x0004,
+      TRIANGLE_STRIP: 0x0005,
+      TRIANGLE_FAN: 0x0006,
+      QUADS: 0x0010,
+      QUAD_STRIP: 0x0011,
+      TESS: 'tess',
+      PROJECT: 'square',
+      SQUARE: 'butt',
+      ROUND: 'round',
+      BEVEL: 'bevel',
+      MITER: 'miter',
+      AUTO: 'auto',
+      BLEND: 'source-over',
+      REMOVE: 'destination-out',
+      DARKEST: 'darkest',
+      LIGHTEST: 'lighten',
+      DIFFERENCE: 'difference',
+      SUBTRACT: 'subtract',
+      EXCLUSION: 'exclusion',
+      MULTIPLY: 'multiply',
+      SCREEN: 'screen',
+      REPLACE: 'copy',
+      OVERLAY: 'overlay',
+      HARD_LIGHT: 'hard-light',
+      SOFT_LIGHT: 'soft-light',
+      DODGE: 'color-dodge',
+      BURN: 'color-burn',
+      THRESHOLD: 'threshold',
+      GRAY: 'gray',
+      OPAQUE: 'opaque',
+      INVERT: 'invert',
+      POSTERIZE: 'posterize',
+      DILATE: 'dilate',
+      ERODE: 'erode',
+      BLUR: 'blur',
+      NORMAL: 'normal',
+      ITALIC: 'italic',
+      BOLD: 'bold',
+      BOLDITALIC: 'bolditalic'
+    };
+
+    for (const c in p5Constants) {
+      if (!(c in window)) {
+        window[c] = p5Constants[c];
+      }
+    }
+    window.p5Constants = p5Constants;
   }
 
   // --- Dynamic CDN Loader ---

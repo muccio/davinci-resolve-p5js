@@ -9,6 +9,9 @@
 static const char* kTestSketch = R"JS(
 function setup() {
   createCanvas(width, height);
+  colorMode(HSB, 360, 100, 100);
+  rectMode(CENTER);
+  colorMode(RGB, 255);
   noStroke();
 }
 
