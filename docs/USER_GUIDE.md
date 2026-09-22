@@ -359,6 +359,31 @@ function draw() {
 
 ---
 
+### 🎨 Preset Nativi: ASCII Art (Full Color & Monochrome)
+
+Nella modalità **P5.js Canvas Effect**, puoi selezionare dal menu a tendina **`Preset Template`** dell'Inspector:
+
+#### 1. `ASCII Art - Full Color`
+Converte il video in streaming in caratteri tipografici mantenendo i colori originali:
+- **Campionamento Rapido**: Scansione diretta dell'array `videoIn.loadPixels()` a passi regolari di griglia (`CHAR_SIZE`).
+- **Luminanza Ponderata**: Calcolo della luminosità secondo la formula percettiva ITU-R BT.601 ($0.299 R + 0.587 G + 0.114 B$).
+- **Saturazione & Contrasto**: Il colore di ogni cella viene esaltato con boost di saturazione per risaltare su sfondo scuro.
+- **Reattività Audio**: L'ampiezza rilevata da `audioIn.getLevel()` modula dinamicamente sia il contrasto che la scala dei caratteri.
+
+#### 2. `ASCII Art - Monochrome (B&W)`
+Aesthetic stile console retro, terminale Unix o Matrix:
+- **Rampa Tipografica**: Sequenza di densità standard ` .:-=+*#%@`.
+- **Inversione Sfondo**: Parametro `INVERT = false` (sfondo nero con testo chiaro) o `INVERT = true` (sfondo bianco con testo scuro).
+- **Personalizzazione Rapida**: Variabili in cima al file facilmente modificabili:
+  ```javascript
+  const CHAR_SIZE = 12;     // Dimensione cella caratteri
+  const CONTRAST = 1.3;     // Fattore di contrasto luminanza
+  const INVERT = false;     // Inverti sfondo / testo
+  const AUDIO_REACTIVE = true;
+  ```
+
+---
+
 ## 6. Checklist di Debug & Linee Guida di Ottimizzazione
 
 | Aspetto | Linea Guida & Best Practice |
