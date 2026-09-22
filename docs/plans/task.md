@@ -10,3 +10,4 @@
 | 6 | CMake Build System & Universal macOS Bundle Packaging | COMPLETED | `P5Generator.ofx.bundle` built with Info.plist & resources |
 | 7 | Standalone Verification Test Harness (`test_p5_bridge`) | COMPLETED | Automated verification passing with exact RGBA pixel assertions |
 | 8 | End-User Documentation & Zero-Friction Tutorial | COMPLETED | `USER_GUIDE.md` and `README.md` authored with examples & architecture |
+| 9 | GitHub Public Release | COMPLETED | Release `v1.0.0` published with `P5Generator-v1.0.0-macos.zip` asset |
