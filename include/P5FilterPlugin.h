@@ -23,6 +23,7 @@ public:
     ~P5FilterPluginInstance();
 
     // Parameter handles
+    OfxParamHandle paramPreset = nullptr;
     OfxParamHandle paramCode = nullptr;
     OfxParamHandle paramCdn = nullptr;
     OfxParamHandle paramAudioFile = nullptr;

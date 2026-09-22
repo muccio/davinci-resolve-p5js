@@ -64,6 +64,9 @@ add_custom_command(TARGET P5Generator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/p5_shim.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/default_sketch.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/default_filter_sketch.js" "${BUNDLE_RESOURCES_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLE_RESOURCES_DIR}/presets"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/presets/ascii_color.js" "${BUNDLE_RESOURCES_DIR}/presets/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/presets/ascii_bw.js" "${BUNDLE_RESOURCES_DIR}/presets/"
     COMMENT "Assembling P5Generator.ofx.bundle with Resources, symlinks, and Info.plist"
 )
 
