@@ -239,6 +239,172 @@
       }
     }
     window.p5Constants = p5Constants;
+
+    // --- VideoIn Source Implementation (Processing / p5.js createCapture compatible) ---
+    class VideoInSource {
+      constructor() {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = 1920;
+        this.canvas.height = 1080;
+        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+        this.ctx.fillStyle = '#000000';
+        this.ctx.fillRect(0, 0, 1920, 1080);
+
+        this.elt = this.canvas;
+        this.drawingContext = this.ctx;
+        this.width = 1920;
+        this.height = 1080;
+        this.pixels = new Uint8ClampedArray(1920 * 1080 * 4);
+        this._imageData = null;
+        this._isDirty = true;
+      }
+
+      loadPixels() {
+        this._imageData = this.ctx.getImageData(0, 0, this.width, this.height);
+        this.pixels = this._imageData.data;
+        this._isDirty = false;
+      }
+
+      updatePixels() {
+        if (this._imageData) {
+          this.ctx.putImageData(this._imageData, 0, 0);
+          this._isDirty = true;
+        }
+      }
+
+      get(x, y, w, h) {
+        if (x === undefined && y === undefined) {
+          if (window.p5Instance && typeof window.p5Instance.createImage === 'function') {
+            const img = window.p5Instance.createImage(this.width, this.height);
+            img.drawingContext.drawImage(this.canvas, 0, 0);
+            return img;
+          }
+          return this;
+        }
+        if (w === undefined && h === undefined) {
+          const ix = Math.floor(x);
+          const iy = Math.floor(y);
+          if (ix < 0 || ix >= this.width || iy < 0 || iy >= this.height) {
+            return [0, 0, 0, 0];
+          }
+          if (this._isDirty || !this._imageData) {
+            this.loadPixels();
+          }
+          const idx = (iy * this.width + ix) * 4;
+          return [this.pixels[idx], this.pixels[idx + 1], this.pixels[idx + 2], this.pixels[idx + 3]];
+        }
+        const sw = Math.floor(w);
+        const sh = Math.floor(h);
+        if (window.p5Instance && typeof window.p5Instance.createImage === 'function') {
+          const sub = window.p5Instance.createImage(sw, sh);
+          sub.drawingContext.drawImage(this.canvas, Math.floor(x), Math.floor(y), sw, sh, 0, 0, sw, sh);
+          return sub;
+        }
+        return this;
+      }
+
+      async updateFromScheme(frameId) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = 'resolve-frame://current.bmp?t=' + frameId;
+        try {
+          await img.decode();
+          if (this.width !== img.width || this.height !== img.height) {
+            this.width = img.width;
+            this.height = img.height;
+            this.canvas.width = img.width;
+            this.canvas.height = img.height;
+          }
+          this.ctx.clearRect(0, 0, this.width, this.height);
+          this.ctx.drawImage(img, 0, 0);
+          this._isDirty = true;
+          this._imageData = null;
+        } catch (e) {
+          // Ignore decode errors if frame update cancelled
+        }
+      }
+    }
+
+    // --- AudioIn Source Implementation (p5.sound / Processing Minim compatible) ---
+    class AudioInSource {
+      constructor() {
+        this.level = 0.0;
+        this.amplitude = 0.0;
+        this.peak = 0.0;
+        this.bass = 0.0;
+        this.mid = 0.0;
+        this.treble = 0.0;
+        this._waveform = new Array(128).fill(0.0);
+        this._spectrum = new Array(128).fill(0.0);
+      }
+
+      getLevel() {
+        return this.level;
+      }
+
+      waveform() {
+        return this._waveform;
+      }
+
+      getWaveform() {
+        return this._waveform;
+      }
+
+      fft() {
+        return this._spectrum;
+      }
+
+      getSpectrum() {
+        return this._spectrum;
+      }
+
+      analyze() {
+        return this._spectrum;
+      }
+
+      updateMetrics(data) {
+        if (!data) return;
+        this.level = typeof data.level === 'number' ? data.level : 0.0;
+        this.amplitude = this.level;
+        this.peak = typeof data.peak === 'number' ? data.peak : 0.0;
+        this.bass = typeof data.bass === 'number' ? data.bass : 0.0;
+        this.mid = typeof data.mid === 'number' ? data.mid : 0.0;
+        this.treble = typeof data.treble === 'number' ? data.treble : 0.0;
+        if (Array.isArray(data.waveform)) {
+          this._waveform = data.waveform;
+        }
+        if (Array.isArray(data.spectrum)) {
+          this._spectrum = data.spectrum;
+        }
+      }
+    }
+
+    window.videoIn = new VideoInSource();
+    window.audioIn = new AudioInSource();
+    p5.prototype.videoIn = window.videoIn;
+    p5.prototype.audioIn = window.audioIn;
+
+    // p5.sound compatibility shims
+    p5.AudioIn = function () {
+      this.start = function () {};
+      this.stop = function () {};
+      this.getLevel = function () { return window.audioIn.getLevel(); };
+      this.amp = function () { return window.audioIn.getLevel(); };
+    };
+    window.AudioIn = p5.AudioIn;
+
+    p5.FFT = function () {
+      this.setInput = function () {};
+      this.waveform = function () { return window.audioIn.waveform(); };
+      this.analyze = function () { return window.audioIn.fft(); };
+      this.getEnergy = function (freq) {
+        if (freq === 'bass') return window.audioIn.bass * 255;
+        if (freq === 'mid') return window.audioIn.mid * 255;
+        if (freq === 'treble') return window.audioIn.treble * 255;
+        return window.audioIn.level * 255;
+      };
+    };
+    window.FFT = p5.FFT;
   }
 
   // --- Dynamic CDN Loader ---
@@ -319,6 +485,8 @@
         // Compile user script without problematic 'with' blocks
         // By evaluating inside a function that returns setup and draw
         const compileFn = new Function('p', `
+          const videoIn = window.videoIn;
+          const audioIn = window.audioIn;
           ${code}
           const s = (typeof setup === 'function') ? setup : (typeof p.setup === 'function' ? p.setup : null);
           const d = (typeof draw === 'function') ? draw : (typeof p.draw === 'function' ? p.draw : null);
@@ -326,6 +494,8 @@
         `);
 
         const compiled = compileFn.call(p, p);
+        p.videoIn = window.videoIn;
+        p.audioIn = window.audioIn;
         defineClockProperty(p, 'frameCount', () => window.resolveFrame);
         defineClockProperty(p, 'deltaTime', () => 1000.0 / (window.resolveFPS || 24.0));
 
@@ -354,7 +524,7 @@
     return true;
   };
 
-  // --- Deterministic Frame Render Action ---
+  // --- Deterministic Frame Render Action (Generator Mode) ---
   window.renderResolveFrame = function (targetFrame, targetTime, targetFPS, width, height) {
     window.resolveFrame = Math.round(targetFrame);
     window.resolveTime = targetTime;
@@ -396,6 +566,69 @@
       }
 
       // Flush WebGL commands if rendering with WebGL
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (gl) {
+          gl.finish();
+        }
+      }
+    } catch (err) {
+      showError(`Runtime Draw Error: ${err.message}`);
+    }
+
+    return true;
+  };
+
+  // --- Deterministic Frame Render Action (Filter / FX Mode) ---
+  window.renderResolveFilterFrame = async function (targetFrame, targetTime, targetFPS, width, height, audioData, hasVideo) {
+    window.resolveFrame = Math.round(targetFrame);
+    window.resolveTime = targetTime;
+    window.resolveFPS = targetFPS > 0 ? targetFPS : 24.0;
+
+    // 1. Update audio metrics
+    if (window.audioIn && audioData) {
+      window.audioIn.updateMetrics(audioData);
+    }
+
+    // 2. Update incoming video frame if present
+    if (hasVideo && window.videoIn) {
+      await window.videoIn.updateFromScheme(targetFrame);
+    }
+
+    // 3. Handle resolution changes on main canvas
+    if (width > 0 && height > 0 && (width !== window.resolveWidth || height !== window.resolveHeight)) {
+      window.resolveWidth = width;
+      window.resolveHeight = height;
+      if (activeP5Instance && typeof activeP5Instance.resizeCanvas === 'function') {
+        activeP5Instance.resizeCanvas(width, height);
+      }
+    }
+
+    if (!activeP5Instance) {
+      return true;
+    }
+
+    try {
+      if (window.resolveSimMode === 0) {
+        activeP5Instance.redraw();
+      } else {
+        if (targetFrame < lastSimulatedFrame || lastSimulatedFrame < 0) {
+          if (typeof activeP5Instance.setup === 'function') {
+            activeP5Instance.setup();
+          }
+          lastSimulatedFrame = 0;
+        }
+
+        const startFrame = lastSimulatedFrame + 1;
+        for (let f = startFrame; f <= targetFrame; ++f) {
+          window.resolveFrame = f;
+          window.resolveTime = f / window.resolveFPS;
+          activeP5Instance.redraw();
+        }
+        lastSimulatedFrame = targetFrame;
+      }
+
       const canvas = document.querySelector('canvas');
       if (canvas) {
         const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');

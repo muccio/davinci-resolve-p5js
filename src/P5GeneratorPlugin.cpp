@@ -1,4 +1,5 @@
 #include "P5GeneratorPlugin.h"
+#include "P5FilterPlugin.h"
 
 #include <dlfcn.h>
 #include <cstring>
@@ -449,12 +450,15 @@ static OfxPlugin gPluginDefinition = {
 extern "C" {
 
 OfxExport int OfxGetNumberOfPlugins(void) {
-    return 1;
+    return 2;
 }
 
 OfxExport OfxPlugin* OfxGetPlugin(int nth) {
     if (nth == 0) {
         return &gPluginDefinition;
+    }
+    if (nth == 1) {
+        return &gFilterPluginDefinition;
     }
     return nullptr;
 }

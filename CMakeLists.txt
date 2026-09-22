@@ -21,6 +21,8 @@ include_directories(
 # Source files for plugin
 set(PLUGIN_SOURCES
     src/P5GeneratorPlugin.cpp
+    src/P5FilterPlugin.cpp
+    src/P5AudioEngine.mm
     src/P5WebKitBridge.mm
 )
 
@@ -40,6 +42,8 @@ target_link_libraries(P5Generator PRIVATE
     "-framework IOSurface"
     "-framework Metal"
     "-framework CoreGraphics"
+    "-framework Accelerate"
+    "-framework AudioToolbox"
 )
 
 # Custom command to assemble the .ofx.bundle structure
@@ -59,12 +63,14 @@ add_custom_command(TARGET P5Generator POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/p5.min.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/p5_shim.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/default_sketch.js" "${BUNDLE_RESOURCES_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/default_filter_sketch.js" "${BUNDLE_RESOURCES_DIR}/"
     COMMENT "Assembling P5Generator.ofx.bundle with Resources, symlinks, and Info.plist"
 )
 
 # Standalone Test Harness executable
 add_executable(test_p5_bridge
     src/main_test.mm
+    src/P5AudioEngine.mm
     src/P5WebKitBridge.mm
 )
 
@@ -74,6 +80,8 @@ target_link_libraries(test_p5_bridge PRIVATE
     "-framework IOSurface"
     "-framework Metal"
     "-framework CoreGraphics"
+    "-framework Accelerate"
+    "-framework AudioToolbox"
 )
 
 # Installation targets

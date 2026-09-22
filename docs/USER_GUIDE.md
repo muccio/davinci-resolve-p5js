@@ -238,7 +238,128 @@ function draw() {
 
 ---
 
-## 5. Checklist di Debug & Linee Guida di Ottimizzazione
+## 5. Modalità FX (Filter): Guida a `videoIn` e `audioIn`
+
+Oltre alla modalità generatore autonoma, il plugin include la modalità **Filter Effect** (`P5.js Canvas Effect`), applicabile direttamente come effetto sopra qualsiasi clip video sulla timeline di DaVinci Resolve.
+
+### Dove trovarlo in DaVinci Resolve
+- Nella pagina **Edit**: apri il pannello **Effects** -> **OpenFX** -> **Filters** -> trascina **P5.js Canvas Effect** sulla clip video desiderata.
+- Nella pagina **Color** o **Fusion**: aggiungi **P5.js Canvas Effect** come nodo di elaborazione immagine.
+
+---
+
+### Utilizzo dell'hook `videoIn`
+`videoIn` espone il frame video corrente della clip sottostante con la massima compatibilità verso le API di Processing e p5.js:
+
+1. **Disegno Diretto del Video sulla Timeline**:
+   ```javascript
+   image(videoIn, 0, 0); // Risoluzione originale
+   image(videoIn, 0, 0, width, height); // Scalato alla risoluzione del canvas
+   ```
+
+2. **Campionamento Colore Pixel**:
+   ```javascript
+   let col = videoIn.get(mouseX, mouseY); // Restituisce [R, G, B, A]
+   fill(col[0], col[1], col[2]);
+   ```
+
+3. **Manipolazione Pixel ad Alte Prestazioni**:
+   ```javascript
+   videoIn.loadPixels();
+   for (let i = 0; i < videoIn.pixels.length; i += 4) {
+     let r = videoIn.pixels[i];
+     let g = videoIn.pixels[i + 1];
+     let b = videoIn.pixels[i + 2];
+     // elaborazione pixel...
+   }
+   ```
+
+4. **Uso come Texture in 3D WebGL**:
+   ```javascript
+   function setup() {
+     createCanvas(width, height, WEBGL);
+   }
+   function draw() {
+     texture(videoIn);
+     rotateY(millis() * 0.001);
+     box(200);
+   }
+   ```
+
+---
+
+### Utilizzo dell'hook `audioIn`
+Poiché OpenFX non riceve flussi audio nativi dalle clip di DaVinci Resolve, il plugin fornisce 2 modalità di alimentazione audio selezionabili nell'Inspector:
+
+1. **Modalità File Audio/Video (Deterministica & Accurata)**:
+   - Nell'Inspector seleziona il percorso del file audio (`.wav`, `.mp3`, `.m4a`) o video (`.mp4`, `.mov`) nel campo **Audio Track / Media File**.
+   - Il plugin decodifica l'audio con macOS `AudioToolbox` ed esegue un'analisi spettrale FFT ad altissima velocità con Apple `Accelerate` `vDSP`.
+   - L'audio è **perfettamente sincronizzato al millisecondo del frame corrente**, sia durante lo scrubbing avanti/indietro sia durante il render finale di export!
+
+2. **Modalità Live WebAudio / Microfono**:
+   - Cattura in tempo reale l'audio dal microfono o dal loopback di sistema (es. BlackHole) durante il playback.
+
+#### Proprietà e Metodi di `audioIn`:
+- `audioIn.getLevel()`: Ampiezza RMS complessiva normalizzata (valore float tra `0.0` e `1.0`).
+- `audioIn.amplitude`: Alias float di `getLevel()`.
+- `audioIn.peak`: Picco audio istantaneo (`0.0` - `1.0`).
+- `audioIn.bass`: Energia della banda delle basse frequenze (bassi/sub, `0.0` - `1.0`).
+- `audioIn.mid`: Energia della banda delle medie frequenze (`0.0` - `1.0`).
+- `audioIn.treble`: Energia della banda delle alte frequenze (`0.0` - `1.0`).
+- `audioIn.waveform()` o `audioIn.getWaveform()`: Array di 128 campioni PCM normalizzati tra `-1.0` e `1.0`.
+- `audioIn.fft()` o `audioIn.getSpectrum()`: Array di ampiezze frequenziali normalizzate tra `0.0` e `1.0`.
+
+---
+
+### Esempio: Glitch Video & Griglia di Pixel Reattiva all'Audio
+
+```javascript
+function setup() {
+  createCanvas(width, height);
+  noStroke();
+}
+
+function draw() {
+  // Disegna il video originale
+  image(videoIn, 0, 0, width, height);
+
+  let level = audioIn.getLevel();
+  let bass = audioIn.bass;
+  let step = 24;
+
+  // Campiona i pixel del video e crea un effetto particellare modulato dall'audio
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      let col = videoIn.get(x, y);
+      let brightness = (col[0] + col[1] + col[2]) / (3 * 255.0);
+
+      if (brightness > 0.3) {
+        fill(col[0], col[1], col[2], 180);
+        let sz = (step * 0.8) * brightness * (1.0 + bass * 2.0);
+        rect(x, y, sz, sz);
+      }
+    }
+  }
+
+  // Disegna l'oscilloscopio audio in basso
+  let wave = audioIn.waveform();
+  stroke(0, 255, 200, 200);
+  strokeWeight(2);
+  noFill();
+  beginShape();
+  for (let i = 0; i < wave.length; i++) {
+    let wx = map(i, 0, wave.length, 0, width);
+    let wy = height - 50 + wave[i] * 50;
+    vertex(wx, wy);
+  }
+  endShape();
+  noStroke();
+}
+```
+
+---
+
+## 6. Checklist di Debug & Linee Guida di Ottimizzazione
 
 | Aspetto | Linea Guida & Best Practice |
 | :--- | :--- |
@@ -247,3 +368,4 @@ function draw() {
 | **Asset Esterni e `preload()`** | Evita di caricare immagini o file pesanti tramite `loadImage("http://...")` all'interno di `preload()` durante la riproduzione in tempo reale sulla timeline: la latenza di rete rallenterebbe lo scrubbing. Se hai bisogno di immagini o font, incorporali come data URL (base64) o usali in locale. |
 | **Gestione Errori JS** | Se commetti un errore di sintassi JavaScript (es. variabile non definita o parentesi mancante), sullo schermo apparirà un banner rosso semitrasparente con il dettaglio della linea e l'errore esatto, e il plugin continuerà a girare senza mandare in crash DaVinci Resolve. |
 | **Risoluzione Automatica** | `width`, `height`, `windowWidth` e `windowHeight` riflettono sempre la risoluzione impostata in DaVinci Resolve (es. 1920x1080, 3840x2160, 1080x1920 per Reel/Shorts verticali). Non è necessario codificare risoluzioni fisse nello sketch. |
+| **videoIn & audioIn** | Disponibili automaticamente nella modalità **P5.js Canvas Effect**. In assenza di file audio, `audioIn` fornisce valori neutri e silenziosi prevenendo qualsiasi crash dello sketch. |

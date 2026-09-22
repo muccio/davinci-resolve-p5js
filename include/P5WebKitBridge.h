@@ -5,6 +5,8 @@
 #include <memory>
 #include <functional>
 
+#include "P5AudioEngine.h"
+
 // Forward declaration of internal Objective-C implementation wrapper
 class P5WebKitBridgeImpl;
 
@@ -43,7 +45,7 @@ public:
     bool updateSketch(const std::string& sketchCode, const std::string& cdnLibraries, int simMode);
 
     /**
-     * Render a deterministic frame at the requested timeline time.
+     * Render a deterministic frame at the requested timeline time (Generator Mode).
      * Synchronizes WebKit, invokes window.renderResolveFrame(...), captures to IOSurface,
      * and blits to the destination buffer with vertical coordinate alignment.
      * 
@@ -61,6 +63,17 @@ public:
                      int width, int height,
                      void* dstBuffer, int dstRowBytes,
                      bool isFloatFormat);
+
+    /**
+     * Render a deterministic frame with incoming source video and audio metrics (Filter / FX Mode).
+     * Transfers incoming video to WebKit via in-memory custom scheme, updates audio metrics,
+     * and blits the processed canvas output to dstBuffer.
+     */
+    bool renderFilterFrame(double frame, double time, double fps,
+                           const void* srcBuffer, int srcRowBytes, int srcWidth, int srcHeight, bool isSrcFloat,
+                           const P5AudioMetrics& audioMetrics,
+                           int outWidth, int outHeight,
+                           void* dstBuffer, int dstRowBytes, bool isDstFloat);
 
     /**
      * Retrieve latest console messages / JavaScript error logs.

@@ -131,9 +131,83 @@ int main(int argc, char* argv[]) {
 
         assert(b10 > 200 && r10 < 50 && "Frame 10 should be predominantly BLUE!");
 
+        // --- TEST 3: Render Filter Frame with videoIn and audioIn ---
+        std::cout << "[Test 3] Testing Filter Mode with videoIn and audioIn..." << std::endl;
+
+        static const char* kFilterTestSketch = R"JS(
+        function setup() {
+          createCanvas(width, height);
+          noStroke();
+        }
+        function draw() {
+          if (typeof videoIn !== 'undefined') {
+            image(videoIn, 0, 0, width, height);
+          }
+          let c = (typeof videoIn !== 'undefined') ? videoIn.get(10, 10) : [0, 0, 0, 0];
+          fill(c[0] + 10, c[1] + 10, c[2] + 10);
+          rect(width/2 - 5, height/2 - 5, 10, 10);
+        }
+        )JS";
+
+        bridge.updateSketch(kFilterTestSketch, "", 0);
+
+        giveUpDate = [NSDate dateWithTimeIntervalSinceNow:1.0];
+        while ([giveUpDate timeIntervalSinceNow] > 0) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        }
+
+        // Synthetic source video buffer: Solid Green RGBA(40, 210, 60, 255)
+        std::vector<uint8_t> srcVideoBuffer(testWidth * testHeight * 4, 0);
+        for (size_t i = 0; i < srcVideoBuffer.size(); i += 4) {
+            srcVideoBuffer[i + 0] = 40;  // R
+            srcVideoBuffer[i + 1] = 210; // G
+            srcVideoBuffer[i + 2] = 60;  // B
+            srcVideoBuffer[i + 3] = 255; // A
+        }
+
+        P5AudioMetrics testAudioMetrics;
+        testAudioMetrics.level = 0.75f;
+        testAudioMetrics.bass = 0.85f;
+
+        std::fill(pixelBuffer.begin(), pixelBuffer.end(), 0);
+        bool filterRendered = bridge.renderFilterFrame(
+            1.0, 1.0 / 24.0, 24.0,
+            srcVideoBuffer.data(), rowBytes, testWidth, testHeight, false,
+            testAudioMetrics,
+            testWidth, testHeight,
+            pixelBuffer.data(), rowBytes, false
+        );
+
+        if (!filterRendered) {
+            std::cerr << "[Test Error] Filter frame render failed!" << std::endl;
+            return 1;
+        }
+
+        int cornerIdx = 0;
+        int cr = pixelBuffer[cornerIdx + 0];
+        int cg = pixelBuffer[cornerIdx + 1];
+        int cb = pixelBuffer[cornerIdx + 2];
+        int ca = pixelBuffer[cornerIdx + 3];
+
+        std::cout << "[Test 3 Result] Filter Output Corner Pixel: RGBA("
+                  << cr << ", " << cg << ", " << cb << ", " << ca << ")" << std::endl;
+
+        int fctrR = pixelBuffer[centerIdx + 0];
+        int fctrG = pixelBuffer[centerIdx + 1];
+        int fctrB = pixelBuffer[centerIdx + 2];
+        int fctrA = pixelBuffer[centerIdx + 3];
+
+        std::cout << "[Test 3 Result] Filter Output Center Pixel: RGBA("
+                  << fctrR << ", " << fctrG << ", " << fctrB << ", " << fctrA << ")" << std::endl;
+
+        assert(std::abs(cr - 40) <= 8 && std::abs(cg - 210) <= 8 && std::abs(cb - 60) <= 8 &&
+               "Filter corner pixel should match source video frame!");
+        assert(std::abs(fctrR - 50) <= 8 && std::abs(fctrG - 220) <= 8 && std::abs(fctrB - 70) <= 8 &&
+               "Filter center pixel should reflect videoIn.get() and overlay!");
+
         std::cout << "==================================================" << std::endl;
         std::cout << " SUCCESS! All WebKit & IOSurface tests passed!    " << std::endl;
-        std::cout << " Deterministic frame clock verified accurately.   " << std::endl;
+        std::cout << " Generator & Filter modes verified accurately.    " << std::endl;
         std::cout << "==================================================" << std::endl;
 
         bridge.shutdown();

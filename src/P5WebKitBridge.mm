@@ -7,6 +7,78 @@
 #include <mutex>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
+
+#pragma pack(push, 1)
+struct P5BMPHeader {
+    uint16_t bfType;
+    uint32_t bfSize;
+    uint16_t bfReserved1;
+    uint16_t bfReserved2;
+    uint32_t bfOffBits;
+    uint32_t biSize;
+    int32_t  biWidth;
+    int32_t  biHeight;
+    uint16_t biPlanes;
+    uint16_t biBitCount;
+    uint32_t biCompression;
+    uint32_t biSizeImage;
+    int32_t  biXPelsPerMeter;
+    int32_t  biYPelsPerMeter;
+    uint32_t biClrUsed;
+    uint32_t biClrImportant;
+};
+#pragma pack(pop)
+
+// Objective-C interface for custom resolve-frame:// URL scheme
+@interface P5FrameSchemeHandler : NSObject <WKURLSchemeHandler>
+@property (nonatomic, strong) NSData *currentFrameData;
+@property (nonatomic, strong) NSRecursiveLock *dataLock;
+- (void)updateFrameData:(NSData *)data;
+@end
+
+@implementation P5FrameSchemeHandler
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _dataLock = [[NSRecursiveLock alloc] init];
+    }
+    return self;
+}
+
+- (void)updateFrameData:(NSData *)data {
+    [_dataLock lock];
+    _currentFrameData = data;
+    [_dataLock unlock];
+}
+
+- (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
+    [_dataLock lock];
+    NSData *data = _currentFrameData;
+    [_dataLock unlock];
+
+    if (!data) {
+        data = [NSData data];
+    }
+
+    NSDictionary *headers = @{
+        @"Access-Control-Allow-Origin": @"*",
+        @"Content-Type": @"image/bmp",
+        @"Content-Length": @(data.length).stringValue
+    };
+
+    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:urlSchemeTask.request.URL
+                                                              statusCode:200
+                                                             HTTPVersion:@"HTTP/1.1"
+                                                            headerFields:headers];
+    [urlSchemeTask didReceiveResponse:response];
+    [urlSchemeTask didReceiveData:data];
+    [urlSchemeTask didFinish];
+}
+
+- (void)webView:(WKWebView *)webView stopURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
+}
+@end
 
 // Objective-C interface for message handling and navigation delegate
 @interface P5WebScriptHandler : NSObject <WKScriptMessageHandler, WKNavigationDelegate>
@@ -59,12 +131,76 @@
 
 @end
 
+static NSData* createBMPDataFromSource(const void* srcBuffer, int srcRowBytes, int srcWidth, int srcHeight, bool isSrcFloat) {
+    if (!srcBuffer || srcWidth <= 0 || srcHeight <= 0) return nil;
+
+    size_t pixelSize = (size_t)srcWidth * srcHeight * 4;
+    size_t totalSize = sizeof(P5BMPHeader) + pixelSize;
+    NSMutableData *bmpData = [NSMutableData dataWithLength:totalSize];
+    if (!bmpData) return nil;
+
+    P5BMPHeader *hdr = (P5BMPHeader *)[bmpData mutableBytes];
+    hdr->bfType = 0x4D42; // 'BM'
+    hdr->bfSize = (uint32_t)totalSize;
+    hdr->bfReserved1 = 0;
+    hdr->bfReserved2 = 0;
+    hdr->bfOffBits = sizeof(P5BMPHeader);
+    hdr->biSize = 40;
+    hdr->biWidth = srcWidth;
+    hdr->biHeight = -srcHeight; // Top-down
+    hdr->biPlanes = 1;
+    hdr->biBitCount = 32;
+    hdr->biCompression = 0; // BI_RGB
+    hdr->biSizeImage = (uint32_t)pixelSize;
+    hdr->biXPelsPerMeter = 2835;
+    hdr->biYPelsPerMeter = 2835;
+    hdr->biClrUsed = 0;
+    hdr->biClrImportant = 0;
+
+    uint8_t *dstPixels = (uint8_t *)[bmpData mutableBytes] + sizeof(P5BMPHeader);
+
+    if (!isSrcFloat) {
+        const uint8_t *srcBytes = (const uint8_t *)srcBuffer;
+        for (int y = 0; y < srcHeight; ++y) {
+            const uint8_t *srcRow = srcBytes + ((srcHeight - 1 - y) * srcRowBytes);
+            uint8_t *dstRow = dstPixels + (y * srcWidth * 4);
+            for (int x = 0; x < srcWidth; ++x) {
+                // OpenFX RGBA -> BMP BGRA
+                dstRow[x * 4 + 0] = srcRow[x * 4 + 2]; // B
+                dstRow[x * 4 + 1] = srcRow[x * 4 + 1]; // G
+                dstRow[x * 4 + 2] = srcRow[x * 4 + 0]; // R
+                dstRow[x * 4 + 3] = srcRow[x * 4 + 3]; // A
+            }
+        }
+    } else {
+        const float inv255 = 255.0f;
+        const uint8_t *srcBase = (const uint8_t *)srcBuffer;
+        for (int y = 0; y < srcHeight; ++y) {
+            const float *srcRow = (const float *)(srcBase + ((srcHeight - 1 - y) * srcRowBytes));
+            uint8_t *dstRow = dstPixels + (y * srcWidth * 4);
+            for (int x = 0; x < srcWidth; ++x) {
+                float r = std::clamp(srcRow[x * 4 + 0], 0.0f, 1.0f);
+                float g = std::clamp(srcRow[x * 4 + 1], 0.0f, 1.0f);
+                float b = std::clamp(srcRow[x * 4 + 2], 0.0f, 1.0f);
+                float a = std::clamp(srcRow[x * 4 + 3], 0.0f, 1.0f);
+                dstRow[x * 4 + 0] = (uint8_t)(b * inv255);
+                dstRow[x * 4 + 1] = (uint8_t)(g * inv255);
+                dstRow[x * 4 + 2] = (uint8_t)(r * inv255);
+                dstRow[x * 4 + 3] = (uint8_t)(a * inv255);
+            }
+        }
+    }
+
+    return bmpData;
+}
+
 // Internal implementation class
 class P5WebKitBridgeImpl {
 public:
     NSWindow *offscreenWindow = nil;
     WKWebView *webView = nil;
     P5WebScriptHandler *scriptHandler = nil;
+    P5FrameSchemeHandler *frameSchemeHandler = nil;
     IOSurfaceRef ioSurface = nil;
 
     int currentWidth = 0;
@@ -92,6 +228,7 @@ public:
             [offscreenWindow close];
             offscreenWindow = nil;
         }
+        frameSchemeHandler = nil;
         scriptHandler = nil;
     }
 
@@ -125,6 +262,82 @@ public:
 
         return true;
     }
+
+    void captureSnapshotAndBlit(int outWidth, int outHeight,
+                                void* dstBuffer, int dstRowBytes, bool isDstFloat,
+                                void (^onFinish)(bool)) {
+        WKSnapshotConfiguration *snapshotConfig = [[WKSnapshotConfiguration alloc] init];
+        snapshotConfig.rect = NSMakeRect(0, 0, outWidth, outHeight);
+        snapshotConfig.snapshotWidth = @(outWidth);
+
+        [webView takeSnapshotWithConfiguration:snapshotConfig completionHandler:^(NSImage *snapshot, NSError *snapErr) {
+            if (snapErr || !snapshot) {
+                NSLog(@"[P5WebKitBridge] Snapshot error: %@", snapErr.localizedDescription);
+                onFinish(false);
+                return;
+            }
+
+            CGImageRef cgImage = [snapshot CGImageForProposedRect:NULL context:nil hints:nil];
+            if (!cgImage) {
+                onFinish(false);
+                return;
+            }
+
+            IOSurfaceRef surface = ioSurface;
+            if (!surface) {
+                onFinish(false);
+                return;
+            }
+
+            IOSurfaceLock(surface, 0, NULL);
+            void* surfaceBase = IOSurfaceGetBaseAddress(surface);
+            size_t surfaceRowBytes = IOSurfaceGetBytesPerRow(surface);
+
+            CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+            CGContextRef ctx = CGBitmapContextCreate(
+                surfaceBase,
+                outWidth, outHeight, 8,
+                surfaceRowBytes,
+                colorSpace,
+                kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast
+            );
+
+            if (ctx) {
+                CGContextClearRect(ctx, CGRectMake(0, 0, outWidth, outHeight));
+                CGContextDrawImage(ctx, CGRectMake(0, 0, outWidth, outHeight), cgImage);
+                CGContextRelease(ctx);
+            }
+            CGColorSpaceRelease(colorSpace);
+
+            const uint8_t* srcBytes = (const uint8_t*)surfaceBase;
+            uint8_t* dstBytes = (uint8_t*)dstBuffer;
+
+            if (!isDstFloat) {
+                // 8-bit RGBA
+                for (int y = 0; y < outHeight; ++y) {
+                    const uint8_t* srcRow = srcBytes + (y * surfaceRowBytes);
+                    uint8_t* dstRow = dstBytes + ((outHeight - 1 - y) * dstRowBytes);
+                    memcpy(dstRow, srcRow, outWidth * 4);
+                }
+            } else {
+                // 32-bit Float RGBA (0.0f - 1.0f)
+                const float inv255 = 1.0f / 255.0f;
+                for (int y = 0; y < outHeight; ++y) {
+                    const uint8_t* srcRow = srcBytes + (y * surfaceRowBytes);
+                    float* dstRow = (float*)(dstBytes + ((outHeight - 1 - y) * dstRowBytes));
+                    for (int x = 0; x < outWidth; ++x) {
+                        dstRow[x * 4 + 0] = srcRow[x * 4 + 0] * inv255;
+                        dstRow[x * 4 + 1] = srcRow[x * 4 + 1] * inv255;
+                        dstRow[x * 4 + 2] = srcRow[x * 4 + 2] * inv255;
+                        dstRow[x * 4 + 3] = srcRow[x * 4 + 3] * inv255;
+                    }
+                }
+            }
+
+            IOSurfaceUnlock(surface, 0, NULL);
+            onFinish(true);
+        }];
+    }
 };
 
 P5WebKitBridge::P5WebKitBridge()
@@ -144,10 +357,16 @@ bool P5WebKitBridge::init(int initialWidth, int initialHeight, const std::string
         // 1. Create message handler
         m_impl->scriptHandler = [[P5WebScriptHandler alloc] init];
 
-        // 2. Configure WebKit
+        // 2. Configure WebKit & custom URL scheme handler
+        m_impl->frameSchemeHandler = [[P5FrameSchemeHandler alloc] init];
+
         WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
         [config.preferences setValue:@YES forKey:@"allowFileAccessFromFileURLs"];
+        @try {
+            [config setValue:@YES forKey:@"allowUniversalAccessFromFileURLs"];
+        } @catch (id e) {}
         [config.userContentController addScriptMessageHandler:m_impl->scriptHandler name:@"p5Bridge"];
+        [config setURLSchemeHandler:m_impl->frameSchemeHandler forURLScheme:@"resolve-frame"];
 
         // 3. Create offscreen host window for complete CoreAnimation & Metal acceleration
         NSRect frame = NSMakeRect(-20000, -20000, m_impl->currentWidth, m_impl->currentHeight);
@@ -270,85 +489,7 @@ bool P5WebKitBridge::renderFrame(double frame, double time, double fps,
                 return;
             }
 
-            // Snapshot the rendered WebKit frame into CGImage
-            WKSnapshotConfiguration *snapshotConfig = [[WKSnapshotConfiguration alloc] init];
-            snapshotConfig.rect = NSMakeRect(0, 0, width, height);
-            snapshotConfig.snapshotWidth = @(width);
-
-            [m_impl->webView takeSnapshotWithConfiguration:snapshotConfig completionHandler:^(NSImage *snapshot, NSError *snapErr) {
-                if (snapErr || !snapshot) {
-                    NSLog(@"[P5WebKitBridge] Snapshot error: %@", snapErr.localizedDescription);
-                    onFinish(false);
-                    return;
-                }
-
-                CGImageRef cgImage = [snapshot CGImageForProposedRect:NULL context:nil hints:nil];
-                if (!cgImage) {
-                    onFinish(false);
-                    return;
-                }
-
-                // Lock the IOSurface kernel buffer
-                IOSurfaceRef surface = m_impl->ioSurface;
-                if (!surface) {
-                    onFinish(false);
-                    return;
-                }
-
-                IOSurfaceLock(surface, 0, NULL);
-                void* surfaceBase = IOSurfaceGetBaseAddress(surface);
-                size_t surfaceRowBytes = IOSurfaceGetBytesPerRow(surface);
-
-                // Render CGImage directly into IOSurface backing memory
-                CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-                CGContextRef ctx = CGBitmapContextCreate(
-                    surfaceBase,
-                    width, height, 8,
-                    surfaceRowBytes,
-                    colorSpace,
-                    kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast
-                );
-
-                if (ctx) {
-                    // Clear background before drawing snapshot
-                    CGContextClearRect(ctx, CGRectMake(0, 0, width, height));
-                    CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), cgImage);
-                    CGContextRelease(ctx);
-                }
-                CGColorSpaceRelease(colorSpace);
-
-                // Transfer from IOSurface memory to OpenFX output buffer
-                // OpenFX coordinate convention: bottom-left is (0, 0).
-                // HTML5 / WebKit convention: top-left is (0, 0).
-                // We perform a vertical flip during copy.
-                const uint8_t* srcBytes = (const uint8_t*)surfaceBase;
-                uint8_t* dstBytes = (uint8_t*)dstBuffer;
-
-                if (!isFloatFormat) {
-                    // 8-bit RGBA
-                    for (int y = 0; y < height; ++y) {
-                        const uint8_t* srcRow = srcBytes + (y * surfaceRowBytes);
-                        uint8_t* dstRow = dstBytes + ((height - 1 - y) * dstRowBytes);
-                        memcpy(dstRow, srcRow, width * 4);
-                    }
-                } else {
-                    // 32-bit Float RGBA (0.0f - 1.0f)
-                    const float inv255 = 1.0f / 255.0f;
-                    for (int y = 0; y < height; ++y) {
-                        const uint8_t* srcRow = srcBytes + (y * surfaceRowBytes);
-                        float* dstRow = (float*)(dstBytes + ((height - 1 - y) * dstRowBytes));
-                        for (int x = 0; x < width; ++x) {
-                            dstRow[x * 4 + 0] = srcRow[x * 4 + 0] * inv255;
-                            dstRow[x * 4 + 1] = srcRow[x * 4 + 1] * inv255;
-                            dstRow[x * 4 + 2] = srcRow[x * 4 + 2] * inv255;
-                            dstRow[x * 4 + 3] = srcRow[x * 4 + 3] * inv255;
-                        }
-                    }
-                }
-
-                IOSurfaceUnlock(surface, 0, NULL);
-                onFinish(true);
-            }];
+            m_impl->captureSnapshotAndBlit(width, height, dstBuffer, dstRowBytes, isFloatFormat, onFinish);
         }];
     };
 
@@ -377,6 +518,109 @@ bool P5WebKitBridge::renderFrame(double frame, double time, double fps,
         intptr_t waitResult = dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 3000 * NSEC_PER_MSEC));
         if (waitResult != 0) {
             NSLog(@"[P5WebKitBridge] Render timeout on frame %f", frame);
+            return false;
+        }
+    }
+
+    return renderSuccess;
+}
+
+bool P5WebKitBridge::renderFilterFrame(double frame, double time, double fps,
+                                       const void* srcBuffer, int srcRowBytes, int srcWidth, int srcHeight, bool isSrcFloat,
+                                       const P5AudioMetrics& audioMetrics,
+                                       int outWidth, int outHeight,
+                                       void* dstBuffer, int dstRowBytes, bool isDstFloat) {
+    if (!m_impl->webView || !dstBuffer || outWidth <= 0 || outHeight <= 0) {
+        return false;
+    }
+
+    // Convert source video to in-memory BMP
+    NSData *bmpData = createBMPDataFromSource(srcBuffer, srcRowBytes, srcWidth, srcHeight, isSrcFloat);
+    if (m_impl->frameSchemeHandler && bmpData) {
+        [m_impl->frameSchemeHandler updateFrameData:bmpData];
+    }
+
+    // Prepare audio metrics dictionary
+    NSMutableArray *waveArray = [NSMutableArray arrayWithCapacity:audioMetrics.waveform.size()];
+    for (float v : audioMetrics.waveform) {
+        [waveArray addObject:@(v)];
+    }
+
+    NSMutableArray *specArray = [NSMutableArray arrayWithCapacity:audioMetrics.spectrum.size()];
+    for (float v : audioMetrics.spectrum) {
+        [specArray addObject:@(v)];
+    }
+
+    NSDictionary *audioDict = @{
+        @"level": @(audioMetrics.level),
+        @"peak": @(audioMetrics.peak),
+        @"bass": @(audioMetrics.bass),
+        @"mid": @(audioMetrics.mid),
+        @"treble": @(audioMetrics.treble),
+        @"waveform": waveArray,
+        @"spectrum": specArray
+    };
+
+    __block bool renderSuccess = false;
+    __block bool completed = false;
+
+    auto executeRender = ^(void (^onFinish)(bool)) {
+        if (m_impl->currentWidth != outWidth || m_impl->currentHeight != outHeight) {
+            [m_impl->webView setFrame:NSMakeRect(0, 0, outWidth, outHeight)];
+            [m_impl->offscreenWindow setContentSize:NSMakeSize(outWidth, outHeight)];
+            m_impl->ensureIOSurface(outWidth, outHeight);
+        }
+
+        NSDictionary *args = @{
+            @"targetFrame": @(frame),
+            @"targetTime": @(time),
+            @"targetFPS": @(fps),
+            @"width": @(outWidth),
+            @"height": @(outHeight),
+            @"audioData": audioDict,
+            @"hasVideo": @(srcBuffer != nullptr)
+        };
+
+        NSString *jsCall = @"return await window.renderResolveFilterFrame(targetFrame, targetTime, targetFPS, width, height, audioData, hasVideo);";
+
+        [m_impl->webView callAsyncJavaScript:jsCall
+                                   arguments:args
+                                     inFrame:nil
+                              inContentWorld:[WKContentWorld pageWorld]
+                           completionHandler:^(id result, NSError *error) {
+            if (error) {
+                NSLog(@"[P5WebKitBridge] Filter JS Render error: %@", error.localizedDescription);
+                onFinish(false);
+                return;
+            }
+
+            m_impl->captureSnapshotAndBlit(outWidth, outHeight, dstBuffer, dstRowBytes, isDstFloat, onFinish);
+        }];
+    };
+
+    if ([NSThread isMainThread]) {
+        executeRender(^(bool ok) {
+            renderSuccess = ok;
+            completed = true;
+        });
+
+        NSDate *timeoutDate = [NSDate dateWithTimeIntervalSinceNow:3.0];
+        while (!completed && [timeoutDate timeIntervalSinceNow] > 0) {
+            [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+        }
+    } else {
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            executeRender(^(bool ok) {
+                renderSuccess = ok;
+                completed = true;
+                dispatch_semaphore_signal(sema);
+            });
+        });
+
+        intptr_t waitResult = dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 3000 * NSEC_PER_MSEC));
+        if (waitResult != 0) {
+            NSLog(@"[P5WebKitBridge] Filter render timeout on frame %f", frame);
             return false;
         }
     }
